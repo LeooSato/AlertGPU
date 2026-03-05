@@ -1,6 +1,6 @@
-package com.sato.alertsgpu.match;
+package com.sato.alertsgpu.core.service;
 
-import com.sato.alertsgpu.model.Alert;
+import com.sato.alertsgpu.core.domain.Alert;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;

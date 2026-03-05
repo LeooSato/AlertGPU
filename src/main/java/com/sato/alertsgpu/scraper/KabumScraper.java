@@ -1,10 +1,11 @@
 package com.sato.alertsgpu.scraper.kabum;
 
-import com.sato.alertsgpu.model.Alert;
-import com.sato.alertsgpu.model.Store;
+import com.sato.alertsgpu.core.domain.Alert;
+import com.sato.alertsgpu.core.domain.Store;
 import com.sato.alertsgpu.scraper.ScrapedItem;
 import com.sato.alertsgpu.scraper.StoreScraper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -16,6 +17,7 @@ import java.util.List;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class KabumScraper implements StoreScraper {
 
     private static final String SEARCH_URL =
@@ -32,11 +34,14 @@ public class KabumScraper implements StoreScraper {
         List<ScrapedItem> results = new ArrayList<>();
 
         try {
+            log.debug("Starting Kabum search for alert: {} - GPU: {} {}", alert.getName(), alert.getGpuFamily(), alert.getGpuModel());
 
             Document doc = Jsoup.connect(SEARCH_URL)
                     .userAgent("Mozilla/5.0")
                     .timeout(10000)
                     .get();
+
+            log.debug("Successfully connected to Kabum, parsing products...");
 
             for (Element product : doc.select("article")) {
 
@@ -46,9 +51,14 @@ public class KabumScraper implements StoreScraper {
 
                 String url = product.select("a").attr("href");
 
-                if (title.isBlank() || priceRaw.isBlank()) continue;
+                if (title.isBlank() || priceRaw.isBlank()) {
+                    log.trace("Skipping product with blank title or price");
+                    continue;
+                }
 
                 BigDecimal price = parsePrice(priceRaw);
+
+                log.debug("Found product: {} - R$ {} - URL: {}", title, price, url);
 
                 results.add(
                         new ScrapedItem(
@@ -60,8 +70,10 @@ public class KabumScraper implements StoreScraper {
                 );
             }
 
+            log.info("Kabum search completed. Found {} products", results.size());
+
         } catch (Exception e) {
-            System.out.println("Kabum scraping error: " + e.getMessage());
+            log.error("Kabum scraping error: {}", e.getMessage(), e);
         }
 
         return results;

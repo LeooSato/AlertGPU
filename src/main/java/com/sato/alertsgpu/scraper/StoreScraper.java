@@ -1,7 +1,7 @@
 package com.sato.alertsgpu.scraper;
 
-import com.sato.alertsgpu.model.Alert;
-import com.sato.alertsgpu.model.Store;
+import com.sato.alertsgpu.core.domain.Alert;
+import com.sato.alertsgpu.core.domain.Store;
 
 import java.util.List;
 

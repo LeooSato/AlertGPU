@@ -1,4 +1,4 @@
-package com.sato.alertsgpu.model;
+package com.sato.alertsgpu.core.domain;
 
 import jakarta.persistence.*;
 import lombok.*;

@@ -1,26 +1,28 @@
 package com.sato.alertsgpu.scheduler;
 
-import com.sato.alertsgpu.match.MatchService;
-import com.sato.alertsgpu.model.*;
-import com.sato.alertsgpu.notify.TelegramNotifier;
-import com.sato.alertsgpu.repository.AlertHitRepository;
-import com.sato.alertsgpu.repository.AlertRepository;
-import com.sato.alertsgpu.repository.ListingRepository;
+import com.sato.alertsgpu.core.service.MatchService;
+import com.sato.alertsgpu.core.domain.*;
+import com.sato.alertsgpu.integration.telegram.TelegramNotifier;
+import com.sato.alertsgpu.core.repository.AlertHitRepository;
+import com.sato.alertsgpu.core.repository.AlertRepository;
+import com.sato.alertsgpu.core.repository.ListingRepository;
 import com.sato.alertsgpu.scraper.ScrapedItem;
 import com.sato.alertsgpu.scraper.StoreScraper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.math.BigDecimal;
 import java.util.HexFormat;
 import java.util.List;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class AlertScheduler {
 
     private final AlertRepository alertRepository;
@@ -35,26 +37,44 @@ public class AlertScheduler {
 
     @Scheduled(fixedDelayString = "${alerts.scheduler.fixedDelayMs:300000}")
     public void run() {
-        if (!enabled) return;
-        System.out.println("[SCHED] rodando...");
+        if (!enabled) {
+            log.info("Alert scheduler is disabled");
+            return;
+        }
+        log.info("Starting alert scheduler run...");
         List<Alert> alerts = alertRepository.findByEnabledTrue();
-        System.out.println("[SCHED] alerts enabled=" + alerts.size() + " | scrapers=" + scrapers.size());
+        log.info("Found {} enabled alerts and {} scrapers", alerts.size(), scrapers.size());
 
         for (Alert alert : alerts) {
+            log.debug("Processing alert: {} with stores: {}", alert.getName(), alert.getStores());
             for (Store store : alert.getStores()) {
+                log.debug("Looking for scraper for store: {}", store);
                 StoreScraper scraper = scrapers.stream()
                         .filter(s -> s.store() == store)
                         .findFirst()
                         .orElse(null);
 
-                if (scraper == null) continue;
+                if (scraper == null) {
+                    log.warn("No scraper found for store: {}", store);
+                    continue;
+                }
 
+                log.debug("Executing scraper for store: {}", store);
                 List<ScrapedItem> items = scraper.search(alert);
+                log.debug("Scraper returned {} items for alert: {}", items.size(), alert.getName());
 
                 for (ScrapedItem item : items) {
-                    if (!matchService.matches(alert, item.title())) continue;
+                    log.debug("Checking item: {} - Price: {}", item.title(), item.price());
 
-                    if (!withinRange(item.price(), alert.getPriceMin(), alert.getPriceMax())) continue;
+                    if (!matchService.matches(alert, item.title())) {
+                        log.debug("Item does not match alert criteria: {}", item.title());
+                        continue;
+                    }
+
+                    if (!withinRange(item.price(), alert.getPriceMin(), alert.getPriceMax())) {
+                        log.debug("Item price {} is out of range [{}, {}]", item.price(), alert.getPriceMin(), alert.getPriceMax());
+                        continue;
+                    }
 
                     String fingerprint = sha256(item.store() + "|" + item.url());
 
@@ -70,7 +90,10 @@ public class AlertScheduler {
                             ));
 
                     boolean alreadyHit = alertHitRepository.findByAlertAndListing(alert, listing).isPresent();
-                    if (alreadyHit) continue;
+                    if (alreadyHit) {
+                        log.debug("Alert already hit for this listing: {}", listing.getUrl());
+                        continue;
+                    }
 
                     alertHitRepository.save(AlertHit.builder()
                             .alert(alert)
@@ -78,11 +101,12 @@ public class AlertScheduler {
                             .hitPrice(listing.getPrice())
                             .notified(true)
                             .build());
-                    System.out.println("[SCHED] alerts=" + alerts.size());
+                    log.info("🔔 ALERT TRIGGERED: {} - {} - R$ {}", alert.getName(), item.title(), item.price());
                     telegramNotifier.send(formatMsg(alert, listing));
                 }
             }
         }
+        log.info("Alert scheduler run completed");
     }
 
     private boolean withinRange(BigDecimal price, BigDecimal min, BigDecimal max) {

@@ -1,28 +1,28 @@
-package com.sato.alertsgpu.controller;
+package com.sato.alertsgpu.core.service;
 
-import com.sato.alertsgpu.model.Alert;
-import com.sato.alertsgpu.model.dto.AlertResponse;
-import com.sato.alertsgpu.model.dto.CreateAlertRequest;
-import com.sato.alertsgpu.model.dto.UpdateAlertRequest;
-import com.sato.alertsgpu.repository.AlertRepository;
-import jakarta.validation.Valid;
+import com.sato.alertsgpu.core.domain.Alert;
+import com.sato.alertsgpu.api.dto.AlertResponse;
+import com.sato.alertsgpu.api.dto.CreateAlertRequest;
+import com.sato.alertsgpu.api.dto.UpdateAlertRequest;
+import com.sato.alertsgpu.core.repository.AlertRepository;
+import com.sato.alertsgpu.api.exception.AlertNotFoundException;
+import com.sato.alertsgpu.api.exception.InvalidPriceRangeException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
-@RestController
-@RequestMapping("/api/alerts")
+@Service
 @RequiredArgsConstructor
-public class AlertController {
+@Transactional
+public class AlertService {
 
     private final AlertRepository alertRepository;
 
-    @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public AlertResponse create(@RequestBody @Valid CreateAlertRequest req) {
+    public AlertResponse create(CreateAlertRequest req) {
         validateRange(req.priceMin(), req.priceMax());
 
         Alert alert = Alert.builder()
@@ -40,24 +40,23 @@ public class AlertController {
         return toResponse(saved);
     }
 
-    @GetMapping
-    public List<AlertResponse> list() {
+    @Transactional(readOnly = true)
+    public List<AlertResponse> listAll() {
         return alertRepository.findAll().stream().map(this::toResponse).toList();
     }
 
-    @GetMapping("/{id}")
-    public AlertResponse get(@PathVariable UUID id) {
+    @Transactional(readOnly = true)
+    public AlertResponse getById(UUID id) {
         Alert alert = alertRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Alert not found: " + id));
+                .orElseThrow(() -> new AlertNotFoundException("Alert not found: " + id));
         return toResponse(alert);
     }
 
-    @PutMapping("/{id}")
-    public AlertResponse update(@PathVariable UUID id, @RequestBody @Valid UpdateAlertRequest req) {
+    public AlertResponse update(UUID id, UpdateAlertRequest req) {
         validateRange(req.priceMin(), req.priceMax());
 
         Alert alert = alertRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Alert not found: " + id));
+                .orElseThrow(() -> new AlertNotFoundException("Alert not found: " + id));
 
         alert.setName(req.name());
         alert.setGpuFamily(req.gpuFamily() == null || req.gpuFamily().isBlank() ? "RTX" : req.gpuFamily().trim().toUpperCase());
@@ -72,27 +71,24 @@ public class AlertController {
         return toResponse(saved);
     }
 
-    @PatchMapping("/{id}/toggle")
-    public AlertResponse toggle(@PathVariable UUID id) {
+    public AlertResponse toggle(UUID id) {
         Alert alert = alertRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Alert not found: " + id));
+                .orElseThrow(() -> new AlertNotFoundException("Alert not found: " + id));
 
         alert.setEnabled(!Boolean.TRUE.equals(alert.getEnabled()));
         return toResponse(alertRepository.save(alert));
     }
 
-    @DeleteMapping("/{id}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID id) {
+    public void delete(UUID id) {
         if (!alertRepository.existsById(id)) {
-            throw new IllegalArgumentException("Alert not found: " + id);
+            throw new AlertNotFoundException("Alert not found: " + id);
         }
         alertRepository.deleteById(id);
     }
 
-    private void validateRange(java.math.BigDecimal min, java.math.BigDecimal max) {
+    private void validateRange(BigDecimal min, BigDecimal max) {
         if (min.compareTo(max) > 0) {
-            throw new IllegalArgumentException("priceMin must be <= priceMax");
+            throw new InvalidPriceRangeException("priceMin must be <= priceMax");
         }
     }
 

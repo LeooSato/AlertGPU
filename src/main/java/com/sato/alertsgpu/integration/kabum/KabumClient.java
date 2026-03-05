@@ -1,6 +1,6 @@
-package com.sato.alertsgpu.integrations.kabum;
+package com.sato.alertsgpu.integration.kabum;
 
-import com.sato.alertsgpu.integrations.kabum.dto.KabumResponse;
+import com.sato.alertsgpu.integration.kabum.dto.KabumResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -12,7 +12,7 @@ public class KabumClient {
     private final RestClient restClient;
     private final String baseUrl;
 
-    public KabumClient(@Value("${api.kabum.baseUrl}") String baseUrl) {
+    public KabumClient(@Value("${alerts.kabum.base-url}") String baseUrl) {
         this.restClient = RestClient.builder().build();
         this.baseUrl = baseUrl;
     }

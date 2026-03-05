@@ -1,8 +1,8 @@
-package com.sato.alertsgpu.repository;
+package com.sato.alertsgpu.core.repository;
 
-import com.sato.alertsgpu.model.Alert;
-import com.sato.alertsgpu.model.AlertHit;
-import com.sato.alertsgpu.model.Listing;
+import com.sato.alertsgpu.core.domain.Alert;
+import com.sato.alertsgpu.core.domain.AlertHit;
+import com.sato.alertsgpu.core.domain.Listing;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
