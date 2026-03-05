@@ -46,6 +46,7 @@ public class AlertScheduler {
         log.info("Found {} enabled alerts and {} scrapers", alerts.size(), scrapers.size());
 
         for (Alert alert : alerts) {
+            log.info("[SCHED] alert={} stores={}", alert.getId(), alert.getStores());
             log.debug("Processing alert: {} with stores: {}", alert.getName(), alert.getStores());
             for (Store store : alert.getStores()) {
                 log.debug("Looking for scraper for store: {}", store);
@@ -54,6 +55,8 @@ public class AlertScheduler {
                         .findFirst()
                         .orElse(null);
 
+                log.info("[SCHED] store={} scraper={}", store, scraper == null ? "NULL" : scraper.getClass().getSimpleName());
+
                 if (scraper == null) {
                     log.warn("No scraper found for store: {}", store);
                     continue;
@@ -61,6 +64,7 @@ public class AlertScheduler {
 
                 log.debug("Executing scraper for store: {}", store);
                 List<ScrapedItem> items = scraper.search(alert);
+                log.info("[SCHED] store={} items={}", store, items.size());
                 log.debug("Scraper returned {} items for alert: {}", items.size(), alert.getName());
 
                 for (ScrapedItem item : items) {

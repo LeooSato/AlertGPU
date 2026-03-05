@@ -1,27 +1,32 @@
-package com.sato.alertsgpu.scraper.kabum;
+package com.sato.alertsgpu.scraper;
+
 
 import com.sato.alertsgpu.core.domain.Alert;
 import com.sato.alertsgpu.core.domain.Store;
 import com.sato.alertsgpu.scraper.ScrapedItem;
 import com.sato.alertsgpu.scraper.StoreScraper;
+import com.sato.alertsgpu.scraper.kabum.dto.KabumCatalogResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
-@Slf4j
 public class KabumScraper implements StoreScraper {
 
-    private static final String SEARCH_URL =
-            "https://www.kabum.com.br/busca/rtx-5070-12gb";
+    private final WebClient.Builder webClientBuilder;
+
+    @Value("${api.kabum.baseUrl}")
+    private String baseUrl;
 
     @Override
     public Store store() {
@@ -30,68 +35,91 @@ public class KabumScraper implements StoreScraper {
 
     @Override
     public List<ScrapedItem> search(Alert alert) {
+        // termo base do alerta
+        String query = buildQuery(alert); // ex: "RTX 5070 12GB"
+        log.debug("Kabum API search query='{}'", query);
 
-        List<ScrapedItem> results = new ArrayList<>();
+        WebClient client = webClientBuilder.baseUrl(baseUrl).build();
 
-        try {
-            log.debug("Starting Kabum search for alert: {} - GPU: {} {}", alert.getName(), alert.getGpuFamily(), alert.getGpuModel());
+        // pega a 1ª página pra saber total de páginas
+        KabumCatalogResponse first = client.get()
+                .uri(buildHardwareUri(1, 100))
+                .retrieve()
+                .bodyToMono(KabumCatalogResponse.class)
+                .block();
 
-            Document doc = Jsoup.connect(SEARCH_URL)
-                    .userAgent("Mozilla/5.0")
-                    .timeout(10000)
-                    .get();
+        if (first == null || first.data() == null) return List.of();
 
-            log.debug("Successfully connected to Kabum, parsing products...");
+        int totalPages = Math.max(1, first.meta() != null ? first.meta().totalPagesCount() : 1);
 
-            for (Element product : doc.select("article")) {
+        List<ScrapedItem> out = new ArrayList<>();
 
-                String title = product.select("span").text();
+        // processa a primeira página
+        out.addAll(mapAndFilter(first, query));
 
-                String priceRaw = product.select("[class*=price]").text();
+        // processa as demais páginas (pra começar simples, sequencial)
+        for (int page = 2; page <= Math.min(totalPages, 5); page++) { // limita a 5 páginas por enquanto
+            KabumCatalogResponse resp = client.get()
+                    .uri(buildHardwareUri(page, 100))
+                    .retrieve()
+                    .bodyToMono(KabumCatalogResponse.class)
+                    .block();
 
-                String url = product.select("a").attr("href");
-
-                if (title.isBlank() || priceRaw.isBlank()) {
-                    log.trace("Skipping product with blank title or price");
-                    continue;
-                }
-
-                BigDecimal price = parsePrice(priceRaw);
-
-                log.debug("Found product: {} - R$ {} - URL: {}", title, price, url);
-
-                results.add(
-                        new ScrapedItem(
-                                Store.KABUM,
-                                title,
-                                price,
-                                "https://www.kabum.com.br" + url
-                        )
-                );
-            }
-
-            log.info("Kabum search completed. Found {} products", results.size());
-
-        } catch (Exception e) {
-            log.error("Kabum scraping error: {}", e.getMessage(), e);
+            if (resp == null) continue;
+            out.addAll(mapAndFilter(resp, query));
         }
 
-        return results;
+        log.info("Kabum API search completed. query='{}' results={}", query, out.size());
+        return out;
     }
 
-    private BigDecimal parsePrice(String raw) {
+    private URI buildHardwareUri(int pageNumber, int pageSize) {
+        // baseado no endpoint público observado no repo :contentReference[oaicite:3]{index=3}
+        return UriComponentsBuilder
+                .fromPath("/catalog/v2/products-by-category/hardware")
+                .queryParam("page_number", pageNumber)
+                .queryParam("page_size", pageSize)
+                .queryParam("facet_filters", "")
+                .queryParam("sort", "most_searched")
+                .queryParam("is_prime", "false")
+                .queryParam("payload_data", "products_category_filters")
+                .queryParam("include", "gift")
+                .build(true)
+                .toUri();
+    }
 
-        try {
-            String normalized = raw
-                    .replace("R$", "")
-                    .replace(".", "")
-                    .replace(",", ".")
-                    .trim();
+    private List<ScrapedItem> mapAndFilter(KabumCatalogResponse resp, String query) {
+        if (resp.data() == null) return List.of();
 
-            return new BigDecimal(normalized);
+        List<ScrapedItem> list = new ArrayList<>();
+        for (var item : resp.data()) {
+            if (item == null || item.attributes() == null) continue;
 
-        } catch (Exception e) {
-            return null;
+            String title = item.attributes().title();
+            if (title == null) continue;
+
+            // filtro simples por texto (depois a gente evolui p/ matchService)
+            if (!containsIgnoreCase(title, query)) continue;
+
+            BigDecimal price = item.attributes().priceWithDiscount() != null
+                    ? item.attributes().priceWithDiscount()
+                    : item.attributes().price();
+
+            if (price == null) continue;
+
+            String url = "https://www.kabum.com.br/produto/" + item.id(); // link curto já resolve
+
+            list.add(new ScrapedItem(Store.KABUM, title, price, url));
         }
+        return list;
+    }
+
+    private String buildQuery(Alert alert) {
+        // dá match melhor que só "RTX"
+        return "%s %d %dGB".formatted(alert.getGpuFamily(), alert.getGpuModel(), alert.getVramGb());
+    }
+
+    private boolean containsIgnoreCase(String text, String part) {
+        return text.toLowerCase().contains(part.toLowerCase());
     }
 }
