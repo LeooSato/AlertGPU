@@ -1,0 +1,12 @@
+FROM maven:3.9-eclipse-temurin-21
+
+WORKDIR /app
+
+# deixa o repo do maven cacheado em volume
+VOLUME /root/.m2
+
+# porta do app
+EXPOSE 8080
+
+# roda o spring boot via maven (dev mode)
+CMD ["mvn", "-q", "spring-boot:run", "-Dspring-boot.run.jvmArguments=-Dspring.devtools.restart.enabled=true"]
