@@ -9,5 +9,8 @@ import java.math.BigDecimal;
 public record KabumAttributes(
         String title,
         BigDecimal price,
-        @JsonProperty("price_with_discount") BigDecimal priceWithDiscount
+        @JsonProperty("price_with_discount") BigDecimal priceWithDiscount,
+        Boolean available,
+        Integer stock,
+        @JsonProperty("product_link") String productLink
 ) {}

@@ -1,9 +1,9 @@
 package com.sato.alertsgpu.scraper.kabum.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record KabumCatalogResponse(
-        List<KabumProduct> data
+public record KabumProduct(
+        Long id,
+        KabumAttributes attributes
 ) {}
